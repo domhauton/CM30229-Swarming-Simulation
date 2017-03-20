@@ -114,12 +114,9 @@ end
 ; on every cycle, each patch has a (food-replacement-rate * ratio-of-special-foods)% chance of being filled with a special food, though it
 ; may immediately afterwards get replaced by grass.
 to fill-patches-special
-  if ((sum here-list) = 0) [
-    if ((num-special-food-strat != 0 ) and ((random-float 100 ) < (food-replacement-rate * (2 ^ ratio-of-special-foods)))) [
-      set here-list (n-values num-food-strat [ 0 ])                            ;; empty whatever is on the patch
-      set here-list (add-food ((random num-special-food-strat) + 1) here-list) ;; add one of the food types
-    ]
-  ]
+  if (sum here-list) = 0 [ if (num-special-food-strat != 0 ) and ((random-float 100 ) < (food-replacement-rate * (2 ^ ratio-of-special-foods)))
+    [ set here-list (n-values num-food-strat [ 0 ])                                 ;; empty whatever is on the patch
+      set here-list (add-food ((random num-special-food-strat) + 1) here-list)] ]   ;; add one of the food types
 end
 
 to update-patches
