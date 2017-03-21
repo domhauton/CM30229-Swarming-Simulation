@@ -19,9 +19,9 @@
 ;;            food-depletes?                  ;; determines whether there is a cost to sharing knowledge -- does the food deplete if someone else eats it?
 ;;            food-replacement-rate           ;; how many turns until food grows back -- originally 35
 ;;            ratio-of-special-foods          ;; 2 is raised to this and multiplied by food-replacement-rate.  Originally 1/16th == -4
-;;            run-dist                        ;; approx distance moved per turn , see below
+;;            movement-per-turn               ;; mean movement per turn
 ;;            travel-mode                     ;; exact distance; levi flight; smooth distribution; or warp
-;;            num-food-strat                  ;; number of types of things to eat (& know about)
+;;            num-food-types                  ;; number of types of things to eat (& know about)
 ;;            lifespan                        ;; the maximum turtle age
 ;;            travel-mode                     ;; one of run (continuous), warp (jump anywhere), only-freeriders-warp
 ;;            start-num-turtles               ;; num soc-turtles in initial population
@@ -38,21 +38,41 @@
 ;;                  have higher variance since the effects are all probabilistic / population-based.
 
 
-globals [ extra-list                  ;; holds the values for the different types of food
-          regular                     ;; holds the value for the regular type of food, accesible to all
-          show-knowledge
-          p-knowhow                   ;; the chance that a turtle will know how to exploit a new foodtype at birth (FIXME should be a slider)
-          num-special-food-strat      ;; num-food-strat - 1, often useful.
-          expected-graph-max          ;; what we expect the Y axis to run to on the big combined plot
-          foodstrat-graph-const       ;; multiplier based on num-food-strat for the combined plot
-          tc                          ;; social turtle colour
-          ktc ]                       ;; turtles-that-know-something-you-are-looking-at colour
+globals [
+  extra-list                  ;; holds the values for the different types of food
+  food-energy-value           ;; holds the value for the food-energy-value type of food, accesible to all
+  show-knowledge
+  p-food-knowledge-list                   ;; the chance that a turtle will know how to exploit a new foodtype at birth (FIXME should be a slider)
+  num-special-food-strat      ;; num-food-types - 1, often useful.
+  expected-graph-max          ;; what we expect the Y axis to run to on the big combined plot
+  foodstrat-graph-const       ;; multiplier based on num-food-types for the combined plot
+  turtle-colour               ;; social turtle colour
+  ktc                         ;; turtles-that-know-something-you-are-looking-at colour
+
+  movement-per-turn
+
+  start-colony-cnt
+  start-colony-turtle-cnt
+
+  reproduction-age-min
+  reproduction-energy-min
+
+  num-food-types
+  food-max
+  special-max
+]
 
 
 
-patches-own [ here-list ]   ;; Hold a value describing the type of food that is on this patch, -1 if empty
+patches-own [
+  foodCountList
+]
 
-turtles-own [ age energy knowhow ]
+turtles-own [
+  age
+  energy
+  food-knowledge-list
+]
 
 
 to setup
@@ -60,10 +80,11 @@ to setup
   ;; __clear-all-and-reset-ticks should be replaced with clear-all at
   ;; the beginning of your setup procedure and reset-ticks at the end
   ;; of the procedure.)
-  __clear-all-and-reset-ticks
+  clear-all
   setup-globals
   setup-patches
   setup-agents
+  reset-ticks
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -71,17 +92,31 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup-globals
-  set num-special-food-strat (num-food-strat - 1)                           ;; this is more intuitive
-  set expected-graph-max 8000                                               ;; hard coded from looking at graphs
-  set foodstrat-graph-const expected-graph-max / num-food-strat             ;; see update-plot-all
-  set regular 5                                                             ;; default food's value, this could also be user defined.
+  set reproduction-age-min 15
+  set reproduction-energy-min 30
 
-  set extra-list (n-values num-special-food-strat [ (regular * 2) ])        ;; special are worth twice as much
-  set extra-list (fput regular extra-list)
+  set movement-per-turn 3
+
+  set num-food-types 5
+  set food-max 5
+  set food-energy-value 5
+  set special-max 3
+
+  set start-colony-cnt 20
+  set start-colony-turtle-cnt 50
+
+
+
+  set num-special-food-strat (num-food-types - 1)                           ;; this is more intuitive
+  set expected-graph-max 8000                                               ;; hard coded from looking at graphs
+  set foodstrat-graph-const expected-graph-max / num-food-types             ;; see update-plot-all
+
+  set extra-list (n-values num-special-food-strat [ (food-energy-value * 2) ])        ;; special are worth twice as much
+  set extra-list (fput food-energy-value extra-list)
 
   set show-knowledge 0
-  set p-knowhow 0.05             ;; this is a significant value in the simulation, the probability an agent learns something on its own.  Should be a slider.
-  set tc 97                      ;; color for ignorant turtles when using the "show knowledge" buttons
+  set p-food-knowledge-list 0.05             ;; this is a significant value in the simulation, the probability an agent learns something on its own.  Should be a slider.
+  set turtle-colour 97           ;; color for ignorant turtles when using the "show knowledge" buttons
   set ktc 125                    ;; color for turtles who know what you want to check on, as per previous line
 end
 
@@ -93,33 +128,23 @@ end
 ;; at setup time, we run what happens normally a few times to get some food grown up
 to setup-patches
   ask patches [
-    set here-list (n-values num-food-strat [0])
-    repeat 25 [fill-patches-regular fill-patches-special]
+    set foodCountList (n-values num-food-types [0])
+    repeat 25 [
+      fill-patches-food-energy-value
+    ]
     update-patches
   ]
 end
 
 ; on every cycle, each patch has a food-replacement-rate% chance of being filled with grass, whether it had food there before or not.
-to fill-patches-regular
+to fill-patches-food-energy-value
   if (random-float 100 < food-replacement-rate) [
-    set here-list (n-values num-food-strat [ 0 ]) ;; empty whatever is on the patch
-    set here-list (add-food 0 here-list)          ;; add regular food
-  ]
-end
-
-; on every cycle, each patch has a (food-replacement-rate * ratio-of-special-foods)% chance of being filled with a special food, though it
-; may immediately afterwards get replaced by grass.
-to fill-patches-special
-  if ((sum here-list) = 0) [
-    if ((num-special-food-strat != 0 ) and ((random-float 100 ) < (food-replacement-rate * (2 ^ ratio-of-special-foods)))) [
-      set here-list (n-values num-food-strat [ 0 ])                            ;; empty whatever is on the patch
-      set here-list (add-food ((random num-special-food-strat) + 1) here-list) ;; add one of the food types
-    ]
+    set foodCountList (add-food (random num-food-types) foodCountList)          ;; add food-energy-value food
   ]
 end
 
 to update-patches
-   set pcolor (40 + (first here-list * 3) + (sum (butfirst here-list) * 5))
+   set pcolor (40 + (first foodCountList * 3) + (sum (butfirst foodCountList) * 5))
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -127,30 +152,27 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup-agents
-  crt start-num-turtles                 ;; create given number of turtles
-  ask turtles [
-    set age random lifespan             ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan
-    setxy random-xcor random-ycor       ;; randomize the turtle locations
-    set energy (random-normal 18 0.9 )
-    init-soc-vars
-    set color tc
+  repeat start-colony-cnt [
+    let colony-xcor random-xcor
+    let colony-ycor random-ycor
+    create-turtles start-colony-turtle-cnt [
+      setxy colony-xcor colony-ycor
+      fd random 5
+      set age random lifespan             ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan
+      set energy (random-normal 18 0.9 )
+      get-infant-knowledge
+      set color turtle-colour
+    ]
   ]
-end
-
-to init-soc-vars
-  get-infant-knowledge     ;; a few will know something extra...
 end
 
 to go
   tick
 
-  ask (turtles) [
+  ask turtles [
     take-food
-    if ((random energy) > 30) [ ; FIXME: Make 30 a global var
+    if ((random energy) > reproduction-energy-min and age > reproduction-age-min) [
       give-birth
-    ]
-    if (show-knowledge != 0) [
-      update-looks-knowhow
     ]
     set energy (energy - 1)
     move-somewhere
@@ -160,8 +182,7 @@ to go
   ]
 
   ask patches [
-    fill-patches-special
-    fill-patches-regular
+    fill-patches-food-energy-value
     update-patches
   ]
 
@@ -169,40 +190,30 @@ to go
   if (remainder ticks 8 = 0) [
     update-graphs
   ]
-
-;  if (count turtles = 0) [
-;    (show (word "turtles became extinct at:" ticks))
-;    stop
-;  ] ;; never happens so excised for speed
-
-;  if (ticks = simulation-runtime) [
-;    (show "time's up!")
-;    stop
-;  ]
 end
 
 
 to take-food
   let k 0
-  set k knowhow
-  ; here-list is taken to refer to a value of patch-here. This is good
+  set k food-knowledge-list
 
-  if (first here-list = 1) [ ; Tile has normal food
-    set energy (energy + regular)
+  ; foodCountList is taken to refer to a value of patch-here. This is good
+  if (first foodCountList = 1) [ ; Tile has normal food
+    set energy (energy + food-energy-value)
   ]
 
-  if (sum (map [ [?1 ?2] -> ?1 * ?2 ] knowhow ( butfirst here-list)) = 1) [ ; Tile has special food
-    set energy ( energy + ( regular * 2 ) )
+  if (sum (map [ [?1 ?2] -> ?1 * ?2 ] food-knowledge-list ( butfirst foodCountList)) = 1) [ ; Tile has special food
+    set energy ( energy + ( food-energy-value * 2 ) )
   ]
 
   ask patch-here [
-    set here-list fput 0 (adjust-here-list (butfirst here-list) k)
+    set foodCountList fput 0 (adjust-foodCountList (butfirst foodCountList) k)
     update-patches
   ]
 
    ; if there was regular food and the agent had less then max enenrgy, it has been eaten
-   ; if there wasn't first here-list will remain 0
-   ; the rest of here-list has to be updated depending on agent know-how
+   ; if there wasn't first foodCountList will remain 0
+   ; the rest of foodCountList has to be updated depending on agent know-how
    ; because we are now in a patch procedure, turtle know-how cannot be accesed and has
    ; to be stored in an extra variable
    ; `update-patches' actually works on 1 patch at the time
@@ -211,13 +222,15 @@ end
 to communicate
   let n 0
 
+  ;FIXME: Learn from best in range
+
   if (num-special-food-strat != 0) [
     ;;pick an item that is 1: first make a list of all the items that are 1
     ;;then randomly pick 1 to tell neighbours
-    if ((sum knowhow) > 0) [
-      set n (one-of (non-zero knowhow 0))
+    if ((sum food-knowledge-list) > 0) [
+      set n (one-of (non-zero food-knowledge-list 0))
       ask turtles in-radius broadcast-radius [
-        set knowhow (replace-item n knowhow 1)
+        set food-knowledge-list (replace-item n food-knowledge-list 1)
       ]
     ]
   ]
@@ -246,43 +259,32 @@ end
 ; "infant": for no particular reason except code efficiency, the agents learn at birth whatever they would individually discover in their lifetime
 to get-infant-knowledge
   let ixi 0
-  set knowhow n-values num-special-food-strat [0]
-  if ((num-special-food-strat > 0) and (random-float 1 < p-knowhow)) [
-    set ixi (random num-special-food-strat)
-    set knowhow replace-item ixi knowhow 1
-  ]
+  set food-knowledge-list (n-values num-food-types [0.1])
 end
 
 
 ;;;;;;;;;;HOW TO MOVE;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; two parmeters from interface affect this
-;;            run-dist          ;; approx distance moved per turn , see below
-
 to move-somewhere
+
   rt random 360  ; turn somewhere (silly if warping)
   move-forward
 end
 
 to move-forward
-  fd gamma-flight
-  run-dist
+  forward (gamma-flight movement-per-turn)
 end
 
 ; this is all from Edwards et al 2007 (more natural than Levy Flight) via Dr. Lowe
 to-report gamma-flight [len]
-  let mn len / 2
-  let gm (len ^ 2) / 12  ; yes I know the parens should be redundant
-  let alpha (mn ^ 2 ) / gm
-  let lambda mn / gm
-  ; let out 0 ; for debugging -- normally report directly
+  let half-len len / 2
+  let gamma (len ^ 2) / 12
+  let alpha (half-len ^ 2 ) / half-len
+  let lambda half-len / gamma
 
   ;alpha and lambda are what netlogo calls its gamma parameters, but they don't document what they really are.
   ;alpha is really shape, and lambda is really rate.
-
   report (random-gamma alpha lambda)
-  ;output-print out  ; for debugging, delete later
-  ;report out
 end
 
 
@@ -298,9 +300,6 @@ to flip-color
     if (show-knowledge > num-special-food-strat) [
       set show-knowledge 1
     ]
-    ask turtles [
-      update-looks-knowhow
-    ]
   ]
 end
 
@@ -311,17 +310,9 @@ to knowledge-gradient
   ]
 end
 
-to update-looks-knowhow
-  ifelse (show-knowledge > num-special-food-strat) [
-    update-looks-gradient
-  ] [
-    set color ifelse-value (item (show-knowledge - 1) knowhow = 1) [ktc] [tc]
-  ]
-end
-
 to update-looks-gradient
-let k (sum knowhow)
-set color ifelse-value (k = 0)[tc] [ifelse-value
+let k (sum food-knowledge-list)
+set color ifelse-value (k = 0)[turtle-colour] [ifelse-value
                        (k = 1)[106] [ifelse-value
                        (k = 2)[116 ] [ifelse-value
                        (k = 3)[126] [ifelse-value
@@ -335,7 +326,7 @@ end
 
 to color-off
   set show-knowledge 0
-  set color tc
+  set color turtle-colour
 end
 
 
@@ -346,22 +337,24 @@ end
 
 ;;takes 2 lists and outputs one list that is 'adjusted'
 ;;the list describing the food available at a certain patch is
-;;adjusted according to the list describing turtle knowhow
+;;adjusted according to the list describing turtle food-knowledge-list
 ;; assumes turtle ate everything it knew how to eat!
-to-report adjust-here-list [hrlst knwhw]
+to-report adjust-foodCountList [hrlst knwhw]
   if hrlst = [] [
     report []
   ]
   ifelse (first knwhw = 1) [
-    report (fput 0 (adjust-here-list (butfirst hrlst) (butfirst knwhw)))
+    report (fput 0 (adjust-foodCountList (butfirst hrlst) (butfirst knwhw)))
   ] [
-    report (fput (first hrlst) (adjust-here-list (butfirst hrlst) (butfirst knwhw)))
+    report (fput (first hrlst) (adjust-foodCountList (butfirst hrlst) (butfirst knwhw)))
   ]
 end
 
-;;adds 1 to item n of list l
-to-report add-food [n l]
-  report (replace-item n l ((item n l) + 1 ) )
+;; Adds value to food count up to max
+to-report add-food [food-type food-list]
+  let new-food-cnt (item food-type food-list) + 1
+  set new-food-cnt ifelse-value (new-food-cnt > food-max) [food-max] [new-food-cnt]
+  report (replace-item food-type food-list new-food-cnt)
 end
 
 ;;takes a list and returns the list of non-zero item-numbers
@@ -422,9 +415,9 @@ to update-plot-all
   set-current-plot-pen "turtles"
   plot count turtles
   set-current-plot-pen "reg-food"
-  plot ceiling ( 0.4 * (count patches with [(first here-list) = 1 ]))
+  plot ceiling ( 0.4 * (count patches with [(first foodCountList) = 1 ]))
   set-current-plot-pen "know"
-  if (count turtles != 0) [ plot ceiling (foodstrat-graph-const * ((sum [sum knowhow] of turtles) / (count turtles)))]
+  if (count turtles != 0) [ plot ceiling (foodstrat-graph-const * ((sum [sum food-knowledge-list] of turtles) / (count turtles)))]
 end
 
 to-report energy-turtles
@@ -448,15 +441,15 @@ to-report safe-mean [lll]
 end
 
 to-report avg-turtles-k [iii]
-  report safe-mean [energy] of (turtles with [iii = sum knowhow])
+  report safe-mean [energy] of (turtles with [iii = sum food-knowledge-list])
 end
 
 to-report count-turtles-k [iii]
-  report count turtles with [iii = sum knowhow]
+  report count turtles with [iii = sum food-knowledge-list]
 end
 
 to-report sd-turtles-k [iii]
-  report safe-standard-deviation [energy] of (turtles with [iii = sum knowhow])
+  report safe-standard-deviation [energy] of (turtles with [iii = sum food-knowledge-list])
 end
 
 ;plots the age of the turtles having offspring
@@ -467,14 +460,14 @@ to update-plot-offspring
 end
 
 ;plots number of turtles knowing 1-2-3 etc things, for each breed
-to update-t-s-knowhow
+to update-t-s-food-knowledge-list
   let s 0
   let t 0
 
-  set-current-plot "t-s-knowhow"
+  set-current-plot "t-s-food-knowledge-list"
   set-current-plot-pen "turtles"
   set-plot-pen-mode 1
-  histogram [sum knowhow] of turtles
+  histogram [sum food-knowledge-list] of turtles
 end
 
 
@@ -485,10 +478,10 @@ to update-cost-of-speaking
   set-current-plot "cost of speaking"
   set iii 0
   clear-plot
-  while [iii < num-food-strat] [
+  while [iii < num-food-types] [
     set-current-plot-pen "turtles"
-    ifelse (any? turtles with [iii = sum knowhow]) [
-      plotxy iii mean [energy] of (turtles with [iii = sum knowhow])
+    ifelse (any? turtles with [iii = sum food-knowledge-list]) [
+      plotxy iii mean [energy] of (turtles with [iii = sum food-knowledge-list])
     ] [
       plotxy iii 0
     ]
@@ -516,8 +509,8 @@ to-report energy-diff [sum-know-how]
   let sss 0
   let ttt 0
 
-  ifelse (any? turtles with [sum-know-how = sum knowhow]) [
-    set ttt mean [energy] of (turtles with [sum-know-how = sum knowhow])
+  ifelse (any? turtles with [sum-know-how = sum food-knowledge-list]) [
+    set ttt mean [energy] of (turtles with [sum-know-how = sum food-knowledge-list])
   ] [
     set ttt 0
   ]
@@ -525,13 +518,13 @@ to-report energy-diff [sum-know-how]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-619
-49
-1595
-1026
+546
+10
+2096
+1561
 -1
 -1
-8.0
+6.0
 1
 10
 1
@@ -541,10 +534,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--60
-60
--60
-60
+-128
+128
+-128
+128
 0
 0
 1
@@ -568,21 +561,6 @@ NIL
 NIL
 1
 
-SLIDER
-10
-159
-226
-192
-starting-proportion-altruists
-starting-proportion-altruists
-0
-1
-1.0
-0.05
-1
-NIL
-HORIZONTAL
-
 BUTTON
 120
 11
@@ -601,10 +579,10 @@ NIL
 1
 
 PLOT
-10
-463
-506
-808
+30
+218
+526
+563
 plot-all
 NIL
 NIL
@@ -638,25 +616,10 @@ NIL
 1
 
 SLIDER
-12
-238
-168
-271
-run-dist
-run-dist
-0
-5
-1.5
-0.25
-1
-NIL
-HORIZONTAL
-
-SLIDER
-10
-196
-150
-229
+24
+107
+164
+140
 num-food-strat
 num-food-strat
 1
@@ -668,10 +631,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-172
-196
-314
-229
+168
+107
+310
+140
 lifespan
 lifespan
 5
@@ -683,55 +646,25 @@ NIL
 HORIZONTAL
 
 SLIDER
-11
-117
-199
-150
-start-num-turtles
-start-num-turtles
-0
-4000
-750.0
-250
-1
-NIL
-HORIZONTAL
-
-SLIDER
-3
-334
-269
-367
+168
+144
+431
+177
 food-replacement-rate
 food-replacement-rate
 0
 10
-1.6
+1.0
 .1
 1
 % per cycle
 HORIZONTAL
 
 SLIDER
-3
-370
-306
-403
-ratio-of-special-foods
-ratio-of-special-foods
--8
-8
--8.0
-1
-1
-(2 is raised to this)
-HORIZONTAL
-
-SLIDER
-109
-420
-371
-453
+133
+182
+430
+215
 freq-of-mutation
 freq-of-mutation
 0
@@ -743,10 +676,10 @@ freq-of-mutation
 HORIZONTAL
 
 SWITCH
-6
-420
-106
-453
+27
+182
+127
+215
 mutation?
 mutation?
 0
@@ -754,15 +687,15 @@ mutation?
 -1000
 
 SLIDER
-11
-276
-175
-309
+26
+144
+164
+177
 broadcast-radius
 broadcast-radius
 0
 10
-2.4
+10.0
 .1
 1
 NIL
