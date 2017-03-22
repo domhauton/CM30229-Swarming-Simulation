@@ -39,8 +39,6 @@
 
 
 globals [
-  extra-list                  ;; holds the values for the different types of food
-  food-energy-value           ;; holds the value for the food-energy-value type of food, accesible to all
   show-knowledge
   p-food-knowledge-list                   ;; the chance that a turtle will know how to exploit a new foodtype at birth (FIXME should be a slider)
   num-special-food-strat      ;; num-food-types - 1, often useful.
@@ -59,7 +57,9 @@ globals [
 
   num-food-types
   food-max
-  special-max
+  food-grow-size
+  food-death-chance
+  food-base-energy-value
 ]
 
 
@@ -93,26 +93,22 @@ end
 
 to setup-globals
   set reproduction-age-min 15
-  set reproduction-energy-min 30
+  set reproduction-energy-min 45
 
   set movement-per-turn 3
 
-  set num-food-types 5
+  set num-food-types 1
   set food-max 5
-  set food-energy-value 5
-  set special-max 3
+  set food-base-energy-value 3
+  set food-grow-size 2
+  set food-death-chance 0.03
 
-  set start-colony-cnt 20
-  set start-colony-turtle-cnt 50
-
-
+  set start-colony-cnt 25
+  set start-colony-turtle-cnt 100
 
   set num-special-food-strat (num-food-types - 1)                           ;; this is more intuitive
   set expected-graph-max 8000                                               ;; hard coded from looking at graphs
   set foodstrat-graph-const expected-graph-max / num-food-types             ;; see update-plot-all
-
-  set extra-list (n-values num-special-food-strat [ (food-energy-value * 2) ])        ;; special are worth twice as much
-  set extra-list (fput food-energy-value extra-list)
 
   set show-knowledge 0
   set p-food-knowledge-list 0.05             ;; this is a significant value in the simulation, the probability an agent learns something on its own.  Should be a slider.
@@ -129,7 +125,7 @@ end
 to setup-patches
   ask patches [
     set foodCountList (n-values num-food-types [0])
-    repeat 25 [
+    repeat 7 [
       fill-patches-food-energy-value
     ]
     update-patches
@@ -138,13 +134,19 @@ end
 
 ; on every cycle, each patch has a food-replacement-rate% chance of being filled with grass, whether it had food there before or not.
 to fill-patches-food-energy-value
-  if (random-float 100 < food-replacement-rate) [
+  if (random-float 1.0 < food-replacement-rate) [
     set foodCountList (add-food (random num-food-types) foodCountList)          ;; add food-energy-value food
   ]
 end
 
+to decay-existing-food
+    if (random-float 1.0 < food-death-chance) [
+      set foodCountList (remove-food foodCountList)          ;; add food-energy-value food
+    ]
+end
+
 to update-patches
-   set pcolor (40 + (first foodCountList * 3) + (sum (butfirst foodCountList) * 5))
+   set pcolor (sum foodCountList)
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -179,10 +181,12 @@ to go
     set age (age + 1)
     live-or-die
     communicate
+    attempt-learn
   ]
 
   ask patches [
     fill-patches-food-energy-value
+    decay-existing-food
     update-patches
   ]
 
@@ -194,46 +198,39 @@ end
 
 
 to take-food
-  let k 0
-  set k food-knowledge-list
 
-  ; foodCountList is taken to refer to a value of patch-here. This is good
-  if (first foodCountList = 1) [ ; Tile has normal food
-    set energy (energy + food-energy-value)
+  let food-bonus (map [ [i] -> ceiling (i * 5) ] food-knowledge-list) ; Calculate food multiplier
+
+let tile-values (map [ [bonus food-count] -> elsif-value (food-count > 1) [1 + bonus] [0] ] food-bonus foodCountList);
+  let max-tile-value (max tile-values)
+
+  if (max-tile-value > 0) [
+    let max-tile-value-idx (position max-tile-value tile-values)
+    set energy (energy + (max-tile-value + food-base-energy-value))
+    set foodCountList (replace-item max-tile-value-idx foodCountList ((item max-tile-value-idx foodCountList) - 1))
   ]
-
-  if (sum (map [ [?1 ?2] -> ?1 * ?2 ] food-knowledge-list ( butfirst foodCountList)) = 1) [ ; Tile has special food
-    set energy ( energy + ( food-energy-value * 2 ) )
-  ]
-
-  ask patch-here [
-    set foodCountList fput 0 (adjust-foodCountList (butfirst foodCountList) k)
-    update-patches
-  ]
-
-   ; if there was regular food and the agent had less then max enenrgy, it has been eaten
-   ; if there wasn't first foodCountList will remain 0
-   ; the rest of foodCountList has to be updated depending on agent know-how
-   ; because we are now in a patch procedure, turtle know-how cannot be accesed and has
-   ; to be stored in an extra variable
-   ; `update-patches' actually works on 1 patch at the time
+  ; TODO: Convert knowledge to modifier value
+  ; TODO: Calculate true tile food value
+  ; TDOD: Find best food index
+  ; TODO: Add best food index energy
+  ; TODO: Remove best food from tile.
 end
 
 to communicate
   let n 0
 
-  ;FIXME: Learn from best in range
+  let turtles-in-range-knowledge [food-knowledge-list] of (turtles in-radius broadcast-radius)
+  let turtles-in-range-knowledge-rating map [[i] -> sum i] turtles-in-range-knowledge
+  let best-rating max turtles-in-range-knowledge-rating
 
-  if (num-special-food-strat != 0) [
-    ;;pick an item that is 1: first make a list of all the items that are 1
-    ;;then randomly pick 1 to tell neighbours
-    if ((sum food-knowledge-list) > 0) [
-      set n (one-of (non-zero food-knowledge-list 0))
-      ask turtles in-radius broadcast-radius [
-        set food-knowledge-list (replace-item n food-knowledge-list 1)
-      ]
-    ]
-  ]
+  let max-ratinge-idx (position best-rating turtles-in-range-knowledge-rating)
+  let knowledge-of-best-turtle-in-range (item max-ratinge-idx turtles-in-range-knowledge)
+
+  set food-knowledge-list (map [ [?1 ?2] -> ( ?1 + ?2 ) / 2 ] food-knowledge-list knowledge-of-best-turtle-in-range);
+end
+
+to attempt-learn
+  set food-knowledge-list (map [ [i] -> ( i + (random-float 0.002) - 0.0015) ] food-knowledge-list);
 end
 
 to live-or-die
@@ -266,6 +263,7 @@ end
 ;;;;;;;;;;HOW TO MOVE;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to move-somewhere
+  ; FIXME: Move to cleverest person
 
   rt random 360  ; turn somewhere (silly if warping)
   move-forward
@@ -352,9 +350,14 @@ end
 
 ;; Adds value to food count up to max
 to-report add-food [food-type food-list]
-  let new-food-cnt (item food-type food-list) + 1
+  let new-food-cnt (item food-type food-list) + food-grow-size
   set new-food-cnt ifelse-value (new-food-cnt > food-max) [food-max] [new-food-cnt]
   report (replace-item food-type food-list new-food-cnt)
+end
+
+;; Removes value of food count up to max
+to-report remove-food [food-list]
+  report ( map [[i] -> ifelse-value (i < 1) [0] [i - 1] ] food-list )
 end
 
 ;;takes a list and returns the list of non-zero item-numbers
@@ -415,13 +418,22 @@ to update-plot-all
   set-current-plot-pen "turtles"
   plot count turtles
   set-current-plot-pen "reg-food"
-  plot ceiling ( 0.4 * (count patches with [(first foodCountList) = 1 ]))
+  plot ceiling ( 0.2 * (sum (map sum ([foodCountList] of patches))))
   set-current-plot-pen "know"
-  if (count turtles != 0) [ plot ceiling (foodstrat-graph-const * ((sum [sum food-knowledge-list] of turtles) / (count turtles)))]
+  ifelse (count turtles != 0) [
+    plot ceiling (avg-knowledge * 3000)
+  ] [
+    plot 0
+  ]
+
 end
 
 to-report energy-turtles
   report mean ([energy] of turtles)
+end
+
+to-report avg-knowledge
+  report mean [mean food-knowledge-list] of turtles
 end
 
 to-report safe-standard-deviation [lll]
@@ -520,8 +532,8 @@ end
 GRAPHICS-WINDOW
 546
 10
-2096
-1561
+1328
+793
 -1
 -1
 6.0
@@ -534,10 +546,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--128
-128
--128
-128
+-64
+64
+-64
+64
 0
 0
 1
@@ -616,24 +628,9 @@ NIL
 1
 
 SLIDER
-24
+26
 107
-164
-140
-num-food-strat
-num-food-strat
-1
-20
-8.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-168
-107
-310
+429
 140
 lifespan
 lifespan
@@ -648,43 +645,17 @@ HORIZONTAL
 SLIDER
 168
 144
-431
+487
 177
 food-replacement-rate
 food-replacement-rate
 0
-10
-1.0
-.1
+0.1
+0.01
+.005
 1
 % per cycle
 HORIZONTAL
-
-SLIDER
-133
-182
-430
-215
-freq-of-mutation
-freq-of-mutation
-0
-10
-5.0
-1
-1
-(1 in 10 raised to this)
-HORIZONTAL
-
-SWITCH
-27
-182
-127
-215
-mutation?
-mutation?
-0
-1
--1000
 
 SLIDER
 26
@@ -717,9 +688,9 @@ MONITOR
 55
 267
 100
-knows what
-show-knowledge
-17
+knowledge
+avg-knowledge
+4
 1
 11
 
