@@ -3,39 +3,6 @@
 ;; This version of the simulation was written by Joanna Bryson while a fellow of the Konrad Lorenz Institute for Evolution and Cognition Research, while on sabbatical from the University of Bath.
 ;; It is based on a simulation by Cace and Bryson (2005, 2007).
 
-;; Changes since journal submission:
-;;                                        March 2017 by JJB: tidied for ICCS
-;;                                  15 December 2007 by JJB: enable exploration of different niche sizes.
-;;                                  01 January  2008 by JJB: mutation for Boyd.
-;;                                  09 February 2009 by JJB: remove predation experiments, Cace's old file code (pre-Behaviour Spaces) for PNAS archive
-;;                                  31 January  2010 by JJB: fix comments clarifying food growth, update to NetLogo 4.1 (didn't require code change)
-;;                                        July  2010 by JJB & WEML:  new BehavSpace code to run viscosity checks
-;;                                    September 2010 by JJB: caught weird food consumption bug working on derived simulation; didn't impact results but reran figures anyway.
-;;				       November 2011 by JJB: change experiment names for HBES submission
-
-;;    globalvars from sliders etc.:
-;;
-;;            starting-proportion-altruists   ;; the chance that a turtle will be a comunicator
-;;            food-depletes?                  ;; determines whether there is a cost to sharing knowledge -- does the food deplete if someone else eats it?
-;;            food-replacement-rate           ;; how many turns until food grows back -- originally 35
-;;            ratio-of-special-foods          ;; 2 is raised to this and multiplied by food-replacement-rate.  Originally 1/16th == -4
-;;            movement-per-turn               ;; mean movement per turn
-;;            travel-mode                     ;; exact distance; levi flight; smooth distribution; or warp
-;;            num-food-types                  ;; number of types of things to eat (& know about)
-;;            lifespan                        ;; the maximum turtle age
-;;            travel-mode                     ;; one of run (continuous), warp (jump anywhere), only-freeriders-warp
-;;            start-num-turtles               ;; num soc-turtles in initial population
-;;            simulation-runtime              ;; how many timesteps the simulation runs
-;;            mutation?                       ;; if off, none
-;;            freq-of-mutation                ;; if mutation? on, then 1 in 10 raised to this will be a different species than their parents
-
-
-;;            Ivana wrote code for this, but had it set to 0 for the paper.  If we ever experiment with it, make into a slider.
-;;            knowledge-transfer              ;; for every item, the probability that the parent will teach the child
-
-;;            World size for submitted HBES figures is 85 x 85 with patches of 8.0, font size 10.  A smaller world runs faster, but the results
-;;                  have higher variance since the effects are all probabilistic / population-based.
-
 
 globals [
   show-knowledge
@@ -46,7 +13,8 @@ globals [
   turtle-colour               ;; social turtle colour
   ktc                         ;; turtles-that-know-something-you-are-looking-at colour
 
-  movement-per-turn
+  turtle-move-speed
+  turtle-lifespan
 
   start-colony-cnt
   start-colony-turtle-cnt
@@ -64,8 +32,11 @@ globals [
   learning-success-chance
   learning-distance
 
+  learning-change-difficulty
+
   swarming-distance
   swarming-energy
+  ;; SLIDER swarming-probability
 ]
 
 
@@ -101,7 +72,8 @@ to setup-globals
   set reproduction-age-min 15
   set reproduction-energy-min 45
 
-  set movement-per-turn 3
+  set turtle-move-speed 3
+  set turtle-lifespan 65
 
   set num-food-types 1
   set food-max 5
@@ -113,11 +85,13 @@ to setup-globals
   set start-colony-turtle-cnt 50
 
   set learning-rate 0.01
-  set learning-success-chance 0.3
-  set learning-distance 2.0
+  set learning-success-chance 0.4
+  set learning-distance 1.0
+  set learning-change-difficulty 1
 
   set swarming-distance 10.0
   set swarming-energy 45
+  ;; SLIDER set swarming-probability 0.5
 
   set expected-graph-max 8000                                               ;; hard coded from looking at graphs
   set foodstrat-graph-const expected-graph-max / num-food-types             ;; see update-plot-all
@@ -135,7 +109,7 @@ end
 to setup-patches
   ask patches [
     set foodCountList (n-values num-food-types [0])
-    repeat 45 [
+    repeat 60 [
       fill-patches-food-energy-value
     ]
     update-patches
@@ -170,7 +144,7 @@ to setup-agents
     create-turtles start-colony-turtle-cnt [
       setxy colony-xcor colony-ycor
       fd random 5
-      set age random lifespan             ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan)
+      set age random turtle-lifespan
       set energy (random-normal 18 0.9 )
       get-infant-knowledge
       set color turtle-colour
@@ -191,7 +165,6 @@ to go
     set age (age + 1)
     live-or-die
     communicate
-    attempt-learn
   ]
 
   ask patches [
@@ -227,24 +200,22 @@ to take-food
 end
 
 to communicate
-  let n 0
-
   let turtles-in-range-knowledge [food-knowledge-list] of (turtles in-radius learning-distance)
-  let turtles-in-range-knowledge-rating map [[i] -> sum i] turtles-in-range-knowledge
-  let best-rating max turtles-in-range-knowledge-rating
+  if (length turtles-in-range-knowledge > 0) [
+    let turtles-in-range-knowledge-rating map [[i] -> sum i] turtles-in-range-knowledge
+    let best-rating max turtles-in-range-knowledge-rating
 
-  let max-ratinge-idx (position best-rating turtles-in-range-knowledge-rating)
-  let knowledge-of-best-turtle-in-range (item max-ratinge-idx turtles-in-range-knowledge)
+    let max-ratinge-idx (position best-rating turtles-in-range-knowledge-rating)
+    let knowledge-of-best-turtle-in-range (item max-ratinge-idx turtles-in-range-knowledge)
 
-  set food-knowledge-list (map [ [?1 ?2] -> ( ?1 + ?2 ) / 2 ] food-knowledge-list knowledge-of-best-turtle-in-range);
-end
+    let communicated-knowledge (map [ [i] -> ( i - (random-float learning-rate) + ( learning-success-chance * learning-rate )) ] knowledge-of-best-turtle-in-range);
 
-to attempt-learn
-  set food-knowledge-list (map [ [i] -> ( i - (random-float learning-rate) + ( learning-success-chance * learning-rate )) ] food-knowledge-list);
+    set food-knowledge-list (map [ [old-knowledge better-knowledge] -> ((old-knowledge * learning-change-difficulty) + better-knowledge ) / (1 + learning-change-difficulty) ] food-knowledge-list communicated-knowledge);
+  ]
 end
 
 to live-or-die
-  if (energy < 0) or (age > lifespan) [ ; show word word energy " is energy, age is " age
+  if (energy < 0) or (age > turtle-lifespan) [ ; show word word energy " is energy, age is " age
     die
   ]
 end
@@ -273,7 +244,7 @@ end
 ;;;;;;;;;;HOW TO MOVE;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to move-somewhere
-  ifelse (energy > swarming-energy) [
+  ifelse (energy > swarming-energy and random-float 1.0 < swarming-probability) [
     let close-turtles (turtles in-radius swarming-distance)
     let delta-xcor (mean [xcor] of close-turtles) - xcor
     let delta-ycor (mean [ycor] of close-turtles) - ycor
@@ -289,7 +260,7 @@ to move-somewhere
 end
 
 to move-forward
-  forward (gamma-flight movement-per-turn)
+  forward (gamma-flight turtle-move-speed)
 end
 
 ; this is all from Edwards et al 2007 (more natural than Levy Flight) via Dr. Lowe
@@ -611,9 +582,9 @@ NIL
 
 PLOT
 25
-184
+247
 521
-529
+592
 plot-all
 NIL
 NIL
@@ -648,30 +619,15 @@ NIL
 
 SLIDER
 26
-107
-347
-140
-lifespan
-lifespan
-5
-100
-65.0
-5
-1
-NIL
-HORIZONTAL
-
-SLIDER
-26
 142
-345
+354
 175
 food-replacement-rate
 food-replacement-rate
 0
-0.1
-0.025
-.005
+0.05
+0.02
+.0025
 1
 % per cycle
 HORIZONTAL
@@ -708,6 +664,21 @@ count turtles
 0
 1
 11
+
+SLIDER
+26
+179
+345
+212
+swarming-probability
+swarming-probability
+0
+1.0
+1.0
+0.1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
