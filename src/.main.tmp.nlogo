@@ -3,6 +3,7 @@
 ;; This version of the simulation was written by Joanna Bryson while a fellow of the Konrad Lorenz Institute for Evolution and Cognition Research, while on sabbatical from the University of Bath.
 ;; It is based on a simulation by Cace and Bryson (2005, 2007).
 
+extensions [csv]
 
 globals [
   show-knowledge
@@ -84,10 +85,10 @@ to setup-globals
   set start-colony-cnt 10
   set start-colony-turtle-cnt 50
 
-  set learning-rate 0.01
+  set learning-rate 0.02
   set learning-success-chance 0.4
   set learning-distance 1.0
-  set learning-change-difficulty
+  set learning-change-difficulty 1
 
   set swarming-distance 10.0
   set swarming-energy 45
@@ -100,6 +101,33 @@ to setup-globals
   set ktc 125                    ;; color for turtles who know what you want to check on, as per previous line
 end
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Run Simulations
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to run-simulation-to-file
+  let filename (word "sim-results-" swarming-probability ".csv")
+  IF FILE-EXISTS? filename [
+    FILE-DELETE filename
+  ]
+  let knowledge-record-main (n-values  [(n-values 13 [0.1])])
+  let cnt-outer 0
+  repeat 50 [
+    setup
+    let knowledge-record (n-values 14 [0.1])
+    let cnt-inner 1
+    repeat 13 [
+      repeat 100 [
+        go
+      ]
+      set knowledge-record (replace-item cnt-inner knowledge-record avg-knowledge)
+      set cnt-inner (cnt-inner + 1)
+    ]
+    set knowledge-record-main (replace-item cnt-outer knowledge-record-main knowledge-record)
+    set cnt-outer (cnt-outer + 1)
+  ]
+  csv:to-file filename knowledge-record-main
+end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Patches
@@ -674,11 +702,28 @@ swarming-probability
 swarming-probability
 0
 1.0
-1.0
+0.9
 0.1
 1
 NIL
 HORIZONTAL
+
+BUTTON
+261
+13
+360
+46
+record-sim
+run-simulation-to-file
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
