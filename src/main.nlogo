@@ -26,7 +26,6 @@
 ;;            travel-mode                     ;; one of run (continuous), warp (jump anywhere), only-freeriders-warp
 ;;            start-num-turtles               ;; num soc-turtles in initial population
 ;;            simulation-runtime              ;; how many timesteps the simulation runs
-;;            broadcast-radius                ;; how far away soc-turtles can receive / observe knowledge transmission.  Ivana's default was 1
 ;;            mutation?                       ;; if off, none
 ;;            freq-of-mutation                ;; if mutation? on, then 1 in 10 raised to this will be a different species than their parents
 
@@ -60,6 +59,13 @@ globals [
   food-grow-size
   food-death-chance
   food-base-energy-value
+
+  learning-rate
+  learning-success-chance
+  learning-distance
+
+  swarming-distance
+  swarming-energy
 ]
 
 
@@ -103,15 +109,19 @@ to setup-globals
   set food-grow-size 2
   set food-death-chance 0.03
 
-  set start-colony-cnt 25
-  set start-colony-turtle-cnt 100
+  set start-colony-cnt 10
+  set start-colony-turtle-cnt 50
 
-  set num-special-food-strat (num-food-types - 1)                           ;; this is more intuitive
+  set learning-rate 0.01
+  set learning-success-chance 0.3
+  set learning-distance 2.0
+
+  set swarming-distance 10.0
+  set swarming-energy 45
+
   set expected-graph-max 8000                                               ;; hard coded from looking at graphs
   set foodstrat-graph-const expected-graph-max / num-food-types             ;; see update-plot-all
 
-  set show-knowledge 0
-  set p-food-knowledge-list 0.05             ;; this is a significant value in the simulation, the probability an agent learns something on its own.  Should be a slider.
   set turtle-colour 97           ;; color for ignorant turtles when using the "show knowledge" buttons
   set ktc 125                    ;; color for turtles who know what you want to check on, as per previous line
 end
@@ -125,7 +135,7 @@ end
 to setup-patches
   ask patches [
     set foodCountList (n-values num-food-types [0])
-    repeat 7 [
+    repeat 45 [
       fill-patches-food-energy-value
     ]
     update-patches
@@ -160,7 +170,7 @@ to setup-agents
     create-turtles start-colony-turtle-cnt [
       setxy colony-xcor colony-ycor
       fd random 5
-      set age random lifespan             ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan
+      set age random lifespan             ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan)
       set energy (random-normal 18 0.9 )
       get-infant-knowledge
       set color turtle-colour
@@ -199,7 +209,7 @@ end
 
 to take-food
 
-  let food-bonus (map [ [i] -> ceiling (i * 5) ] food-knowledge-list) ; Calculate food multiplier
+  let food-bonus (map [ [i] -> ceiling (i * 20) ] food-knowledge-list) ; Calculate food multiplier
 
   let tile-values (map [ [bonus food-count] -> ifelse-value (food-count > 0) [1 + bonus] [0] ] food-bonus foodCountList);
   let max-tile-value (max tile-values)
@@ -219,7 +229,7 @@ end
 to communicate
   let n 0
 
-  let turtles-in-range-knowledge [food-knowledge-list] of (turtles in-radius broadcast-radius)
+  let turtles-in-range-knowledge [food-knowledge-list] of (turtles in-radius learning-distance)
   let turtles-in-range-knowledge-rating map [[i] -> sum i] turtles-in-range-knowledge
   let best-rating max turtles-in-range-knowledge-rating
 
@@ -230,7 +240,7 @@ to communicate
 end
 
 to attempt-learn
-  set food-knowledge-list (map [ [i] -> ( i + (random-float 0.002) - 0.0015) ] food-knowledge-list);
+  set food-knowledge-list (map [ [i] -> ( i - (random-float learning-rate) + ( learning-success-chance * learning-rate )) ] food-knowledge-list);
 end
 
 to live-or-die
@@ -263,9 +273,18 @@ end
 ;;;;;;;;;;HOW TO MOVE;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to move-somewhere
-  ; FIXME: Move to cleverest person
-
-  rt random 360  ; turn somewhere (silly if warping)
+  ifelse (energy > swarming-energy) [
+    let close-turtles (turtles in-radius swarming-distance)
+    let delta-xcor (mean [xcor] of close-turtles) - xcor
+    let delta-ycor (mean [ycor] of close-turtles) - ycor
+    ifelse (delta-xcor = 0 and delta-ycor = 0) [
+      rt random 360
+    ] [
+      set heading (atan delta-xcor delta-ycor) + random 50 - 25
+    ]
+  ] [
+    rt random 360
+  ]
   move-forward
 end
 
@@ -591,10 +610,10 @@ NIL
 1
 
 PLOT
-30
-218
-526
-563
+25
+184
+521
+529
 plot-all
 NIL
 NIL
@@ -630,7 +649,7 @@ NIL
 SLIDER
 26
 107
-429
+347
 140
 lifespan
 lifespan
@@ -643,33 +662,18 @@ NIL
 HORIZONTAL
 
 SLIDER
-168
-144
-487
-177
+26
+142
+345
+175
 food-replacement-rate
 food-replacement-rate
 0
 0.1
-0.01
+0.025
 .005
 1
 % per cycle
-HORIZONTAL
-
-SLIDER
-26
-144
-164
-177
-broadcast-radius
-broadcast-radius
-0
-10
-10.0
-.1
-1
-NIL
 HORIZONTAL
 
 MONITOR
