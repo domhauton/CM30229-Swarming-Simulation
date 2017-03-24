@@ -733,19 +733,19 @@ This model starts from an existing model (by Cace & Bryson).  This model looks a
 
 ## HOW IT WORKS
 
-### life and death
+life and death
 When they run out of energy or reach the maximum age, the agents die. Turtles can begin to give birth when they reach a threshold age and energy level.
 
-### Signalling
+*communication
 At every time-step a turtle learns from the most intelligent turtle around it that is within the communication distance. Offspring is born with the base knowledge required to survive. 
 
-### Feeding
+*feeding
 When the turtles that know are at a patch with the food they know of, they get more energy.
 
-### Patches
+*patches
 The user defines the rate at which food is added to the environment. Every patch has the probability of (replace-rate/1.0) of being filled with food.
 
-### Movement
+*the walkabout
 The turtles walk around according to levi flight. Foraging animals and foraging optimised agents, regardsless of their implementation (genetic algorithms, NN) do the levi flight.
 The probability of a step of lenghth l is P(l):
 P(l) = 1/z * 1/l^mu
@@ -759,7 +759,6 @@ The turns are just random unless the turtle is full, at which point it meanders 
 ## SETUP_BUTTONS:
 
 + swarming-probabilty: change this to the desired value at the start of the simulation and run.
-+ food-replacement-rate: the speed at which food is added to the environment.
 
 ## RELATED MODELS
 
