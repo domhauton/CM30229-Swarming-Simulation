@@ -24,7 +24,7 @@ Throughout testing we vary the probability of a turtle meandering towards a more
 
 We use Edwards et al. [2007]'s gamma distributed movement distance to simulate movement per tick for each individual.
 
-<img src="https://github.com/domhauton/CM30229-Netlogo-Simulation/blob/master/writeup/imgs/swarming-low.png" alt="Low Density Swarming" width="200"/> <img src="https://github.com/domhauton/CM30229-Netlogo-Simulation/blob/master/writeup/imgs/swarming-high.png" alt="High Density Swarming" width="200"/>
+<img src="https://github.com/domhauton/CM30229-Netlogo-Simulation/blob/master/writeup/imgs/swarming-high.png" alt="High Density Swarming" width="200"/> <img src="https://github.com/domhauton/CM30229-Swarming-Simulation/blob/master/writeup/imgs/swarming-low.png" alt="Low Density Swarming" width="200"/>
 
 Figure 1: Swarming Levels - 1.0 & 0.8 resp.
 
@@ -34,7 +34,7 @@ The simulation is performed in Netlogo 6.0. The code is forked from a similar pr
 
 The results of the simulation show an expected and statistically significant increase (using a p-value of 0.05) in knowledge progression within the population. Fig 2 shows an maximal knowledge progression occurring when turtles spent all of their free time in the swarm, only venturing out when hungry. There was no knowledge progression with a swarming rate of 0.7. Swarming values below 0.7 show no significant effects on learning, so we use 0.7 as our base reading.
 
-<img src="https://github.com/domhauton/CM30229-Netlogo-Simulation/blob/master/writeup/imgs/swarming-effect.png" alt="Knowledge vs. Time Graph" width="400"/>
+<img src="https://github.com/domhauton/CM30229-Swarming-Simulation/blob/master/writeup/imgs/swarming-effect.png" alt="Knowledge vs. Time Graph" width="400"/>
 
 Figure 2: Knowledge vs Time - Results
 
